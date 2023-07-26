@@ -1,16 +1,41 @@
 import tkinter as tk
+from tkinter import simpledialog, messagebox
 from datetime import datetime
 import pytz
 from tzlocal import get_localzone
 import requests
 import geocoder
 import locale
+import os
 
+# Function to get the API key from the user or continue without it
+def get_api_key():
+    api_key = simpledialog.askstring("API Key", "Put your API key here (or click Cancel to continue without it):")
+    if api_key is None or api_key.strip() == "":
+        # If the user clicks Cancel or leaves the input empty, continue without the API key
+        return None
+    return api_key
+
+# Get the API key from the user or read it from the config file
+config_file_path = "config.txt"
+if os.path.exists(config_file_path):
+    # If the config file exists, read the API key from it
+    with open(config_file_path, "r") as config_file:
+        api_key = config_file.readline().strip()
+else:
+    # If the config file does not exist, get the API key from the user
+    api_key = get_api_key()
+    if api_key is not None:
+        # If the user provided an API key, save it to the config file for future use
+        with open(config_file_path, "w") as config_file:
+            config_file.write(api_key)
+
+# Function to get the current time in the specified timezone
 def get_current_time(timezone):
-    # Get the current time in the specified timezone
     tz = pytz.timezone(timezone)
     return datetime.now(tz)
 
+# Function to update the time label with the current time
 def update_time_label():
     time_str = ""
     if timezone_var.get() == "UTC":
@@ -19,38 +44,46 @@ def update_time_label():
         local_timezone = get_localzone()
         time_str = get_current_time(str(local_timezone)).strftime("%I:%M:%S %p")
     time_label.config(text=time_str)
-    window.after(1000, update_time_label)
+    window.after(1000, update_time_label)  # Schedule the function to run after 1 second
 
+# Function to toggle fullscreen mode when F11 key is pressed
 def toggle_fullscreen(event):
     if window.attributes('-fullscreen'):
         window.attributes('-fullscreen', False)
     else:
         window.attributes('-fullscreen', True)
 
+# Function to get the nearest city and display the temperature
 def get_nearest_city():
-    g = geocoder.ip('me')
-    lat, lon = g.latlng
-    url = f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=5'
-    response = requests.get(url)
-    data = response.json()
-    city = data.get('address', {}).get('city', 'Unknown')
+    if api_key:
+        # Get the user's current location using geocoder
+        g = geocoder.ip('me')
+        lat, lon = g.latlng
 
-    # Use locale library to get the user's country code
-    country_code = locale.getdefaultlocale()[0].split('_')[-1]
-    if country_code in ('US', 'LR', 'MM'):
-        # Display temperature in Fahrenheit for United States, Liberia, and Myanmar
-        temperature = get_temperature(city, units='imperial')
-        temperature_label.config(text=f'Temperature: {temperature}°F')
+        # Make a request to OpenStreetMap Nominatim API to get city information based on latitude and longitude
+        url = f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=5'
+        response = requests.get(url)
+        data = response.json()
+        city = data.get('address', {}).get('city', 'Unknown')
+
+        # Use locale library to get the user's country code
+        country_code = locale.getdefaultlocale()[0].split('_')[-1]
+        if country_code in ('US', 'LR', 'MM'):
+            # Display temperature in Fahrenheit for United States, Liberia, and Myanmar
+            temperature = get_temperature(city, units='imperial')
+            temperature_label.config(text=f'Temperature: {temperature}°F')
+        else:
+            # Display temperature in Celsius for other regions
+            temperature = get_temperature(city, units='metric')
+            temperature_label.config(text=f'Temperature: {temperature}°C')
+
+        temperature_label.after(60000, get_nearest_city)  # Update temperature every 1 minute
     else:
-        # Display temperature in Celsius for other regions
-        temperature = get_temperature(city, units='metric')
-        temperature_label.config(text=f'Temperature: {temperature}°C')
+        # Disable the temperature label if no API key is provided
+        temperature_label.config(text="")
 
-    temperature_label.after(60000, get_nearest_city)  # Update temperature every 1 minute
-
+# Function to get the temperature from the API
 def get_temperature(city, units='metric'):
-    # Replace 'YOUR_API_KEY' with your OpenWeatherMap API key
-    api_key = 'YOUR_API_KEY'
     url = f'http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units={units}'
     response = requests.get(url)
     data = response.json()
